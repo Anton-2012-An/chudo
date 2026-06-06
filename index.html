@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Электронная очередь в туалет</title>
+    <style>
+        * { box-sizing: border-box; font-family: system-ui, 'Segoe UI', Roboto, sans-serif; }
+        body { background: #1e1f2c; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .app-container { max-width: 1400px; width: 100%; background: #f5f7fc; border-radius: 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); overflow: hidden; padding: 20px 24px 32px; }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-card { background: white; max-width: 600px; width: 90%; border-radius: 28px; padding: 24px; max-height: 85vh; overflow-y: auto; }
+        button { background: #2c3e66; color: white; border: none; padding: 10px 20px; border-radius: 40px; font-weight: bold; cursor: pointer; margin: 8px 6px; transition: 0.2s; white-space: nowrap; }
+        button.danger { background: #b13e3e; }
+        button.warning { background: #e67e22; }
+        button.success { background: #27ae60; }
+        button.small { padding: 5px 12px; font-size: 12px; white-space: nowrap; }
+        .flex-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; justify-content: center; }
+        input, textarea, select { width: 100%; padding: 10px; margin: 6px 0; border-radius: 20px; border: 1px solid #bbb; }
+        .queue-card { background: white; border-radius: 24px; padding: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 12px; border-left: 6px solid #2c3e66; }
+        .stars { font-size: 22px; cursor: pointer; display: inline-block; }
+        .star-filled { color: #ffb400; }
+        .star-empty { color: #ddd; }
+        .admin-panel { background: #fff0db; border-radius: 24px; padding: 15px; margin-top: 20px; overflow-x: auto; }
+        .checklist { background: #e8f0fe; padding: 15px; border-radius: 20px; margin: 10px 0; }
+        .checklist label { display: block; margin: 8px 0; }
+        .status-badge { display: inline-block; padding: 6px 16px; border-radius: 40px; font-size: 14px; font-weight: bold; white-space: nowrap; }
+        .status-waiting { background: #f39c12; color: white; }
+        .status-session { background: #27ae60; color: white; }
+        .status-none { background: #95a5a6; color: white; }
+        .rules-list { text-align: left; margin: 16px 0; padding-left: 0; list-style: none; }
+        .rules-list li { margin-bottom: 12px; line-height: 1.4; font-size: 15px; }
+        .user-header { background: #2c3e66; color: white; padding: 12px 20px; border-radius: 60px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .user-id-badge { background: #ffb400; color: #1e1f2c; padding: 5px 15px; border-radius: 40px; font-weight: bold; font-size: 18px; font-family: monospace; cursor: pointer; transition: 0.2s; }
+        .user-id-badge:hover { background: #ffaa00; transform: scale(1.02); }
+        .user-rating { background: gold; color: #1e1f2c; padding: 5px 15px; border-radius: 40px; font-weight: bold; }
+        .info-grid { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        .paper-instruction { background: #fff3cd; border-left: 6px solid #ffc107; padding: 15px; border-radius: 16px; margin: 15px 0; }
+        .quiz-question { margin: 12px 0; padding: 8px; background: #f0f2f5; border-radius: 16px; }
+        .quiz-question label { margin-left: 8px; cursor: pointer; }
+        .copy-id-btn { background: #ffb400; color: #1e1f2c; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer; border: none; margin-left: 8px; }
+        .copy-id-btn:hover { background: #ffaa00; }
+        .user-select { padding: 12px; font-size: 16px; border-radius: 40px; margin-bottom: 15px; }
+        .accounts-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .accounts-table th, .accounts-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        .accounts-table th { background: #2c3e66; color: white; }
+        .accounts-table tr:nth-child(even) { background: #f9f9f9; }
+        .temp-admin-badge { background: #e67e22; color: white; padding: 4px 12px; border-radius: 40px; font-size: 12px; margin-left: 10px; }
+        .password-cell { font-family: monospace; font-weight: bold; background: #fff0c0; }
+        .report-buttons { display: flex; flex-direction: column; gap: 10px; }
+        .game-message { background: #e8f0fe; border-radius: 20px; padding: 15px; margin: 10px 0; border-left: 6px solid #2c3e66; }
+        .incoming-call { background: #d4edda; border-left: 6px solid #28a745; }
+        .answer-area { margin-top: 15px; }
+        @media (max-width: 700px) {
+            button { white-space: normal; word-break: keep-all; }
+            .flex-row { justify-content: center; }
+            .user-header { flex-direction: column; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+    // ====================== ДАННЫЕ ======================
+    let users = [];
+    let queue = [];
+    let currentSession = null;
+    let complaints = [];
+    let allFeedbacks = [];
+    let currentUserId = null;
+    let waitingForExitChecklist = false;
+    let pendingPreviousUserId = null;
+    let pendingMissingCheckboxes = null;
+    let waitingForPaperConfirm = false;
+    
+    // Игра "Неизвестный абонент"
+    let gameActive = false;
+    let currentCall = null;
+    
+    const CALLS = [
+        { text: "📞 Алло, это служба доставки. Вы заказывали 200 кг картошки?", hint: "Смешно ответь про картошку" },
+        { text: "📞 Здравствуйте, это ваша совесть. Вы меня давно не навещали...", hint: "Ответь совести" },
+        { text: "📞 Привет! Я твой будущий начальник. Угадай, куда ты завтра пойдёшь работать?", hint: "Смешно угадай" },
+        { text: "📞 Алло, это полиция нравов. Вы зарегистрированы как пользователь туалета?", hint: "Оправдайся" },
+        { text: "📞 Звонит ваш бывший. Я всё ещё думаю о тебе... особенно когда сижу на унитазе", hint: "Ответь бывшему" },
+        { text: "📞 Это скорая помощь! Нам сообщили, что вы слишком много смеётесь над ответами!", hint: "Ответь врачам" },
+        { text: "📞 Привет! Я твой внутренний голос. Хватит играть в игры!", hint: "Ответь голосу" },
+        { text: "📞 Алло, вы выиграли поездку в Туалетландию! Поздравляем!", hint: "Обрадуйся" },
+        { text: "📞 Это ваш кот. Я уронил унитаз. Что делать?", hint: "Ответь коту" },
+        { text: "📞 Здравствуйте, из службы поддержки очереди. Ваше терпение — наше всё!", hint: "Ответь поддержке" },
+        { text: "📞 Алло! Я ваш сосед снизу. У вас вода льётся? У меня на голову!", hint: "Оправдайся перед соседом" },
+        { text: "📞 Это звонок из будущего! Не нажимай кнопку смыва, пока не дочитаешь!", hint: "Что ответишь?" }
+    ];
+
+    function randomCall() {
+        return CALLS[Math.floor(Math.random() * CALLS.length)];
+    }
+
+    function showGame() {
+        if(!gameActive) {
+            gameActive = true;
+            nextCall();
+        }
+        renderGameModal();
+    }
+    
+    function nextCall() {
+        currentCall = randomCall();
+        renderGameModal();
+    }
+    
+    function renderGameModal() {
+        let modal = document.createElement('div'); modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-card">
+                <h2>📱 НЕИЗВЕСТНЫЙ АБОНЕНТ</h2>
+                <div class="game-message incoming-call">
+                    <p style="font-size: 18px; margin: 0;"><strong>📞 ВХОДЯЩИЙ ВЫЗОВ:</strong></p>
+                    <p style="font-size: 20px; margin: 10px 0;">${currentCall.text}</p>
+                    <p style="color: #666; font-size: 12px;">💡 ${currentCall.hint}</p>
+                </div>
+                <div class="answer-area">
+                    <textarea id="funnyAnswer" rows="3" placeholder="Напишите смешной ответ..." style="width: 100%;"></textarea>
+                    <div class="flex-row" style="justify-content: center; margin-top: 10px;">
+                        <button id="sendAnswerBtn" class="success">📤 ОТПРАВИТЬ ОТВЕТ</button>
+                        <button id="skipCallBtn" class="warning">📞 ПРОПУСТИТЬ</button>
+                        <button id="closeGameBtn" class="danger">❌ ВЫЙТИ ИЗ ИГРЫ</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        document.getElementById('sendAnswerBtn').onclick = () => {
+            let answer = document.getElementById('funnyAnswer').value.trim();
+            if(!answer) {
+                alert("Напишите хоть что-то смешное!");
+                return;
+            }
+            alert(`😄 Ваш ответ отправлен!\n\n📞 Вы: ${answer}\n\n🤖 Абонент: "Ха-ха, отличный ответ! Передам дальше..."`);
+            modal.remove();
+            nextCall();
+        };
+        
+        document.getElementById('skipCallBtn').onclick = () => {
+            modal.remove();
+            nextCall();
+        };
+        
+        document.getElementById('closeGameBtn').onclick = () => {
+            gameActive = false;
+            currentCall = null;
+            modal.remove();
+            render();
+        };
+    }
+
+    // ========== ТОЛЬКО ЭТИ АККАУНТЫ ==========
+    const ADMIN_ID = 111111;
+    const ADMIN_PASSWORD = '31441537a';
+    
+    const FIXED_ACCOUNTS = [
+        { id: 111111, name: 'Антон', surname: 'Анурин', patronymic: 'Максимович', password: '31441537a', isAdmin: true },
+        { id: null, name: 'Вера', surname: 'Анурина', patronymic: 'Васильевна', password: '1111', isAdmin: false },
+        { id: null, name: 'Максим', surname: 'Анурин', patronymic: 'Александрович', password: '1111', isAdmin: false },
+        { id: null, name: 'Дмитрий', surname: 'Анурин', patronymic: 'Максимович', password: '31441537', isAdmin: false },
+        { id: null, name: 'Ольга', surname: 'Теплякова', patronymic: 'Сергеевна', password: '1111', isAdmin: false }
+    ];
+
+    function copyToClipboard(text, label = "ID") {
+        navigator.clipboard.writeText(text.toString()).then(() => {
+            alert(`✅ ${label} ${text} скопирован в буфер обмена`);
+        }).catch(() => {
+            alert(`❌ Не удалось скопировать`);
+        });
+    }
+
+    function generateRandomId() {
+        return Math.floor(100000 + Math.random() * 900000);
+    }
+
+    function saveData() {
+        localStorage.setItem('toilet_users', JSON.stringify(users));
+        localStorage.setItem('toilet_queue', JSON.stringify(queue));
+        localStorage.setItem('toilet_complaints', JSON.stringify(complaints));
+        localStorage.setItem('toilet_feedbacks', JSON.stringify(allFeedbacks));
+    }
+
+    function initializeFixedAccounts() {
+        let newUsers = [];
+        for(let preset of FIXED_ACCOUNTS) {
+            let existingUser = users.find(u => u.name === preset.name && u.surname === preset.surname && u.patronymic === preset.patronymic);
+            if(existingUser) {
+                existingUser.password = preset.password;
+                newUsers.push(existingUser);
+            } else {
+                let newId = preset.id;
+                if(newId === null) {
+                    newId = generateRandomId();
+                    while(newUsers.find(u => u.id === newId) || newId === ADMIN_ID) newId = generateRandomId();
+                }
+                newUsers.push({
+                    id: newId,
+                    name: preset.name,
+                    surname: preset.surname,
+                    patronymic: preset.patronymic,
+                    password: preset.password,
+                    rating: 5.0,
+                    bannedUntil: null,
+                    canComplainUntil: null,
+                    commentsReceived: [],
+                    history: [],
+                    banInfo: null,
+                    tempAdmin: null
+                });
+            }
+        }
+        users = newUsers;
+        saveData();
+    }
+
+    function loadData() {
+        const u = localStorage.getItem('toilet_users');
+        if(u) users = JSON.parse(u);
+        else users = [];
+        const q = localStorage.getItem('toilet_queue');
+        if(q) queue = JSON.parse(q);
+        const c = localStorage.getItem('toilet_complaints');
+        if(c) complaints = JSON.parse(c);
+        const f = localStorage.getItem('toilet_feedbacks');
+        if(f) allFeedbacks = JSON.parse(f);
+        initializeFixedAccounts();
+    }
+
+    function findUserById(id) { return users.find(u => u.id === id); }
+    
+    function isMainAdmin(userId) {
+        let user = findUserById(userId);
+        return user && user.name === 'Антон' && user.surname === 'Анурин' && user.patronymic === 'Максимович';
+    }
+    
+    function isTempAdmin(userId) {
+        let user = findUserById(userId);
+        if(!user || !user.tempAdmin) return false;
+        if(user.tempAdmin.expiresAt && user.tempAdmin.expiresAt < Date.now()) {
+            user.tempAdmin = null;
+            saveData();
+            return false;
+        }
+        return true;
+    }
+    
+    function hasAdminPermission(userId, permission) {
+        if(isMainAdmin(userId)) return true;
+        let user = findUserById(userId);
+        if(user && user.tempAdmin && user.tempAdmin.permissions && user.tempAdmin.permissions[permission]) {
+            return true;
+        }
+        return false;
+    }
+    
+    function getAdminStatusText(userId) {
+        if(isMainAdmin(userId)) return { isAdmin: true, isTemp: false, text: "ГЛАВНЫЙ АДМИН", expiresAt: null };
+        let user = findUserById(userId);
+        if(user && user.tempAdmin && user.tempAdmin.expiresAt > Date.now()) {
+            let remaining = Math.ceil((user.tempAdmin.expiresAt - Date.now()) / 1000 / 60 / 60);
+            return { isAdmin: true, isTemp: true, text: `ВРЕМЕННЫЙ АДМИН (ещё ${remaining} ч)`, expiresAt: user.tempAdmin.expiresAt };
+        }
+        return { isAdmin: false, isTemp: false, text: null, expiresAt: null };
+    }
+
+    function updateRating(userId) {
+        const fb = allFeedbacks.filter(f => f.targetUserId === userId);
+        if(fb.length === 0) return;
+        const avg = fb.reduce((sum, f) => sum + f.stars, 0) / fb.length;
+        const user = findUserById(userId);
+        if(user) user.rating = Math.round(avg * 10) / 10;
+        saveData();
+    }
+
+    function addCommentToUser(targetId, fromId, commentText, isSystem = false) {
+        const user = findUserById(targetId);
+        if(user) {
+            const fromUser = findUserById(fromId);
+            const fromName = fromUser ? `${fromUser.name} ${fromUser.surname}` : (isSystem ? 'СИСТЕМА' : 'АНОНИМ');
+            user.commentsReceived.unshift({ from: fromName, text: commentText, timestamp: Date.now() });
+            if(user.commentsReceived.length > 20) user.commentsReceived.pop();
+            saveData();
+        }
+    }
+
+    function addToHistory(userId, action, details) {
+        const user = findUserById(userId);
+        if(user) {
+            user.history.unshift({ action, details, timestamp: Date.now() });
+            if(user.history.length > 30) user.history.pop();
+            saveData();
+        }
+    }
+
+    let appRoot = document.getElementById('root');
+
+    function render() {
+        if(currentUserId === null) { renderAuthScreen(); return; }
+        const user = findUserById(currentUserId);
+        if(!user) { currentUserId = null; renderAuthScreen(); return; }
+        
+        if(user.bannedUntil && user.bannedUntil > Date.now()) {
+            renderBanScreen(user);
+            return;
+        }
+        
+        if(waitingForExitChecklist) {
+            renderExitChecklist();
+            return;
+        }
+        if(waitingForPaperConfirm) {
+            renderPaperConfirm();
+            return;
+        }
+        renderMainScreen(user);
+    }
+    
+    function renderBanScreen(user) {
+        const banInfo = user.banInfo || {};
+        const until = new Date(user.bannedUntil).toLocaleString();
+        appRoot.innerHTML = `
+            <div class="modal" style="display:flex;">
+                <div class="modal-card">
+                    <h2>⛔ АККАУНТ ЗАБЛОКИРОВАН</h2>
+                    <p><strong>Кто забанил:</strong> ${banInfo.bannedBy || 'Администратор'}</p>
+                    <p><strong>Время бана:</strong> ${banInfo.bannedAt ? new Date(banInfo.bannedAt).toLocaleString() : 'неизвестно'}</p>
+                    <p><strong>Бан до:</strong> ${until}</p>
+                    <p><strong>Причина:</strong> ${banInfo.reason || 'Нарушение правил'}</p>
+                    <button id="appealBanBtn" class="warning">📢 ПОДАТЬ АПЕЛЛЯЦИЮ</button>
+                    <button id="logoutFromBanBtn">ВЫЙТИ</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('appealBanBtn')?.addEventListener('click', () => {
+            let appeal = prompt('Напишите причину апелляции:');
+            if(appeal) {
+                complaints.push({
+                    id: Date.now(),
+                    fromUserId: currentUserId,
+                    targetUserId: ADMIN_ID,
+                    text: `[АПЕЛЛЯЦИЯ НА БАН] ${appeal}`,
+                    adminAnswer: null,
+                    createdAt: Date.now(),
+                    isArchived: false,
+                    appealText: null,
+                    isBanAppeal: true,
+                    type: 'appeal'
+                });
+                saveData();
+                alert('Апелляция отправлена администратору');
+                render();
+            }
+        });
+        document.getElementById('logoutFromBanBtn')?.addEventListener('click', () => {
+            currentUserId = null;
+            render();
+        });
+    }
+
+    function renderAuthScreen() {
+        const regularUsers = users.filter(u => !isMainAdmin(u.id));
+        
+        let userOptionsHtml = '<option value="">-- ВЫБЕРИТЕ СВОЙ АККАУНТ --</option>';
+        userOptionsHtml += `<option value="admin">🔒 АДМИНИСТРАТОР</option>`;
+        for(let u of regularUsers) {
+            let tempBadge = u.tempAdmin && u.tempAdmin.expiresAt > Date.now() ? ' (врем. админ)' : '';
+            userOptionsHtml += `<option value="${u.id}">${u.name} ${u.surname} ${u.patronymic}${tempBadge} (ID: ${u.id})</option>`;
+        }
+        
+        appRoot.innerHTML = `
+            <div id="rulesModal" class="modal">
+                <div class="modal-card">
+                    <h2>📜 ПРАВИЛА ПОЛЬЗОВАНИЯ ТУАЛЕТОМ</h2>
+                    <ul class="rules-list">
+                        <li><strong>1.</strong> За собой — убрать. Чиркаши, лужи, бардак — ликвидируешь сам.</li>
+                        <li><strong>2.</strong> За нарушение порядка — блокировка аккаунта без предупреждения.</li>
+                        <li><strong>3.</strong> Не задерживайся. Очередь не ждёт.</li>
+                        <li><strong>4.</strong> Зашёл — сразу жми «Начать сеанс». Вышел — отметь галочки (если что-то пропустил — следующего уведомят).</li>
+                        <li><strong>5.</strong> Аккаунт — твой. Никому не передавай.</li>
+                        <li><strong>6.</strong> Не оставляй следующих без бумаги.</li>
+                        <li><strong>7.</strong> Галочки после выхода — честно.</li>
+                        <li><strong>8.</strong> Правила прочитал. Согласен. Нарушил — отвечаешь.</li>
+                    </ul>
+                    <label style="display: block; margin: 15px 0; font-weight: bold;"><input type="checkbox" id="agreeCheckbox"> ✔️ Я ПРИНИМАЮ ВСЕ ПРАВИЛА (обязательно)</label>
+                    <button id="acceptRulesBtn" style="width: 100%;">ПОДТВЕРЖДАЮ</button>
+                </div>
+            </div>
+            <div id="regForm" style="display:none;" class="modal">
+                <div class="modal-card">
+                    <h2>📝 ВХОД В СИСТЕМУ</h2>
+                    <label>Выберите аккаунт:</label>
+                    <select id="userSelect" class="user-select">${userOptionsHtml}</select>
+                    <label>Пароль:</label>
+                    <input type="password" id="passwordInput" placeholder="Введите пароль">
+                    <button id="doLoginBtn" style="width: 100%; margin-top: 15px;">ВОЙТИ</button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('acceptRulesBtn').onclick = () => {
+            if(!document.getElementById('agreeCheckbox').checked) { alert('❌ Надо принять правила — поставь галочку'); return; }
+            document.getElementById('rulesModal').style.display = 'none';
+            document.getElementById('regForm').style.display = 'flex';
+        };
+        
+        document.getElementById('doLoginBtn').onclick = () => {
+            let selectedValue = document.getElementById('userSelect').value;
+            let password = document.getElementById('passwordInput').value;
+            
+            if(!selectedValue) {
+                alert('Выберите аккаунт');
+                return;
+            }
+            
+            if(selectedValue === 'admin') {
+                if(password !== ADMIN_PASSWORD) {
+                    alert('Неверный пароль администратора!');
+                    return;
+                }
+                currentUserId = ADMIN_ID;
+                render();
+                return;
+            }
+            
+            let userId = parseInt(selectedValue);
+            let user = findUserById(userId);
+            if(!user) {
+                alert('Пользователь не найден');
+                return;
+            }
+            
+            if(user.password && user.password !== password) {
+                alert('Неверный пароль!');
+                return;
+            }
+            
+            if(user.bannedUntil && user.bannedUntil > Date.now()) {
+                alert('Этот аккаунт забанен!');
+                return;
+            }
+            
+            currentUserId = user.id;
+            render();
+        };
+    }
+
+    function showReportForm() {
+        let modal = document.createElement('div'); modal.className = 'modal';
+        modal.innerHTML = `
+            <div class="modal-card">
+                <h3>📢 ОБРАЩЕНИЕ К АДМИНИСТРАТОРУ</h3>
+                <p>Выберите тип обращения:</p>
+                <div class="report-buttons">
+                    <button id="complainUserBtn" class="danger">📢 ПОЖАЛОВАТЬСЯ НА ПОЛЬЗОВАТЕЛЯ</button>
+                    <button id="askQuestionBtn" class="warning">❓ ЗАДАТЬ ВОПРОС АДМИНИСТРАТОРУ</button>
+                    <button id="reportBugBtn" class="warning">🐛 СООБЩИТЬ ОБ ОШИБКЕ В СИСТЕМЕ</button>
+                    <button id="cancelReportBtn">ОТМЕНА</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        
+        document.getElementById('complainUserBtn').onclick = () => {
+            modal.remove();
+            let targetId = parseInt(prompt("Введите ID пользователя, на которого хотите пожаловаться:"));
+            if(isNaN(targetId)) { alert("Некорректный ID"); return; }
+            let targetUser = findUserById(targetId);
+            if(!targetUser) { alert(`❌ Пользователь с ID ${targetId} не найден!`); return; }
+            if(targetId === currentUserId) { alert("❌ Нельзя пожаловаться на самого себя"); return; }
+            let text = prompt(`Напишите причину жалобы на ${targetUser.name} ${targetUser.surname}:`);
+            if(text && text.trim()) {
+                complaints.push({
+                    id: Date.now(),
+                    fromUserId: currentUserId,
+                    targetUserId: targetId,
+                    text: text,
+                    adminAnswer: null,
+                    createdAt: Date.now(),
+                    isArchived: false,
+                    appealText: null,
+                    type: 'complaint'
+                });
+                saveData();
+                alert(`✅ Жалоба на ${targetUser.name} отправлена администратору`);
+            }
+        };
+        document.getElementById('askQuestionBtn').onclick = () => {
+            modal.remove();
+            let text = prompt("Напишите ваш вопрос к администратору:");
+            if(text && text.trim()) {
+                complaints.push({
+                    id: Date.now(),
+                    fromUserId: currentUserId,
+                    targetUserId: null,
+                    text: `[ВОПРОС] ${text}`,
+                    adminAnswer: null,
+                    createdAt: Date.now(),
+                    isArchived: false,
+                    appealText: null,
+                    type: 'question'
+                });
+                saveData();
+                alert('✅ Ваш вопрос отправлен администратору');
+            }
+        };
+        document.getElementById('reportBugBtn').onclick = () => {
+            modal.remove();
+            let text = prompt("Опишите проблему или ошибку в системе:");
+            if(text && text.trim()) {
+                complaints.push({
+                    id: Date.now(),
+                    fromUserId: currentUserId,
+                    targetUserId: null,
+                    text: `[ОШИБКА] ${text}`,
+                    adminAnswer: null,
+                    createdAt: Date.now(),
+                    isArchived: false,
+                    appealText: null,
+                    type: 'bug'
+                });
+                saveData();
+                alert('✅ Сообщение об ошибке отправлено администратору');
+            }
+        };
+        document.getElementById('cancelReportBtn').onclick = () => modal.remove();
+    }
+
+    function renderMainScreen(user) {
+        let inQueue = queue.some(q => q.userId === currentUserId);
+        let inSession = (currentSession && currentSession.userId === currentUserId);
+        let isFirstInQueue = (queue.length > 0 && queue[0].userId === currentUserId);
+        
+        let canJoin = !inQueue && !inSession;
+        let canStart = !inSession && (queue.length === 0 || isFirstInQueue);
+        let canLeaveQueue = inQueue && !inSession;
+        
+        let statusText = '';
+        let statusClass = '';
+        if(inSession) { statusText = '🔞 СЕЙЧАС В ТУАЛЕТЕ'; statusClass = 'status-session'; }
+        else if(inQueue) { 
+            let pos = queue.findIndex(q => q.userId === currentUserId) + 1;
+            statusText = `⏳ В ОЧЕРЕДИ (${pos}/${queue.length})`; 
+            statusClass = 'status-waiting';
+        }
+        else { statusText = '💤 НЕ В ОЧЕРЕДИ'; statusClass = 'status-none'; }
+        
+        const adminStatus = getAdminStatusText(currentUserId);
+        let adminBtn = '';
+        if(adminStatus.isAdmin) {
+            adminBtn = `<button id="adminPanelBtn" style="background:#b13e3e;">👑 АДМИН ПАНЕЛЬ</button>`;
+        }
+        
+        let adminBadge = '';
+        if(adminStatus.isAdmin) {
+            adminBadge = `<span class="temp-admin-badge">${adminStatus.text}</span>`;
+        }
+        
+        appRoot.innerHTML = `
+            <div class="user-header">
+                <div class="info-grid">
+                    <span class="user-name-large">🧻 ${user.name} ${user.surname}${adminBadge}</span>
+                    <span class="user-id-badge" onclick="copyToClipboard(${user.id}, 'ID')" title="Нажми, чтобы скопировать ID">🆔 ID: ${user.id} 📋</span>
+                    <span class="user-rating">⭐ РЕЙТИНГ: ${user.rating}</span>
+                </div>
+                <div class="status-badge ${statusClass}" style="font-size: 16px;">${statusText}</div>
+            </div>
+            
+            <div class="flex-row" style="justify-content: center; margin-bottom: 20px;">
+                <button id="viewQueueBtn">📋 ПОСМОТРЕТЬ ОЧЕРЕДЬ (${queue.length})</button>
+                <button id="searchByIdBtn">🔍 ПОИСК ПО ID</button>
+                <button id="writeReviewByIdBtn" class="warning">✍️ ОТЗЫВ ПО ID</button>
+                ${canJoin ? '<button id="joinQueueBtn" class="success">🚶 ВСТАТЬ В ОЧЕРЕДЬ</button>' : ''}
+                ${canLeaveQueue ? '<button id="leaveQueueBtn" class="danger">❌ ВЫЙТИ ИЗ ОЧЕРЕДИ</button>' : ''}
+                ${canStart ? '<button id="startSessionBtn" class="success" style="background:#27ae60;">🚽 НАЧАТЬ ПОСЕЩЕНИЕ</button>' : ''}
+                ${(inQueue || inSession) ? '<button id="gameBtn" class="warning">🎮 НЕИЗВЕСТНЫЙ АБОНЕНТ</button>' : ''}
+                <button id="reportErrorBtn" class="warning">⚠️ ОБРАЩЕНИЕ К АДМИНУ</button>
+                <button id="profileBtn">👤 ПРОФИЛЬ</button>
+                <button id="logoutBtn" class="danger">🚪 ВЫЙТИ</button>
+                ${adminBtn}
+            </div>
+            <div id="dynamicArea" style="margin-top:20px;"></div>
+        `;
+        
+        document.getElementById('viewQueueBtn')?.addEventListener('click', () => showQueueList());
+        document.getElementById('searchByIdBtn')?.addEventListener('click', () => searchById());
+        document.getElementById('writeReviewByIdBtn')?.addEventListener('click', () => writeReviewById());
+        document.getElementById('joinQueueBtn')?.addEventListener('click', () => showJoinForm());
+        document.getElementById('leaveQueueBtn')?.addEventListener('click', () => leaveQueue());
+        document.getElementById('startSessionBtn')?.addEventListener('click', () => startSession());
+        document.getElementById('gameBtn')?.addEventListener('click', () => showGame());
+        document.getElementById('reportErrorBtn')?.addEventListener('click', () => showReportForm());
+        document.getElementById('profileBtn')?.addEventListener('click', () => showProfile(user));
+        document.getElementById('logoutBtn')?.addEventListener('click', () => {
+            if(confirm('Выйти из аккаунта?')) {
+                if(currentSession) {
+                    clearInterval(currentSession.warnInterval);
+                    currentSession = null;
+                }
+                currentUserId = null;
+                gameActive = false;
+                render();
+            }
+        });
+        
+        if(adminStatus.isAdmin) document.getElementById('adminPanelBtn')?.addEventListener('click', () => showAdminPanel());
+        
+        if(currentSession && currentSession.userId !== currentUserId) {
+            let currentVisitor = findUserById(currentSession.userId);
+            if(currentVisitor) {
+                document.getElementById('dynamicArea').innerHTML = `<div class="queue-card"><h3>🚽 СЕЙЧАС В ТУАЛЕТЕ</h3><p><b>${currentVisitor.name} ${currentVisitor.surname}</b> | ID: ${currentVisitor.id}<br>⏱️ Начало: ${new Date(currentSession.startTime).toLocaleTimeString()}</p></div>`;
+            }
+        } else if(!currentSession && queue.length > 0 && queue[0].userId !== currentUserId) {
+            let nextVisitor = findUserById(queue[0].userId);
+            if(nextVisitor) {
+                document.getElementById('dynamicArea').innerHTML = `<div class="queue-card"><h3>⏰ СЛЕДУЮЩИЙ В ОЧЕРЕДИ</h3><p><b>${nextVisitor.name} ${nextVisitor.surname}</b> | ID: ${nextVisitor.id} | ⭐ ${nextVisitor.rating}</p></div>`;
+            }
+        } else if(currentSession && currentSession.userId === currentUserId) {
+            document.getElementById('dynamicArea').innerHTML = renderActiveSession();
+        }
+    }
+    
+    function searchById() {
+        let searchId = parseInt(prompt("Введите ID пользователя (6 цифр):"));
+        if(isNaN(searchId)) { alert("Некорректный ID"); return; }
+        let user = findUserById(searchId);
+        if(!user) { alert("Пользователь не найден"); return; }
+        alert(`👤 ${user.name} ${user.surname}\n🆔 ID: ${user.id}\n⭐ Рейтинг: ${user.rating}`);
+        if(confirm(`Скопировать ID ${user.id} в буфер обмена?`)) {
+            copyToClipboard(user.id, "ID");
+        }
+    }
+
+    function showQueueList() {
+        if(queue.length === 0) { alert('Очередь пуста'); return; }
+        let html = `<h2>🧾 ОЧЕРЕДЬ (${queue.length})</h2>`;
+        queue.forEach((entry, idx) => {
+            let u = findUserById(entry.userId);
+            if(!u) return;
+            html += `<div class="queue-card">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+                    <b style="font-size:18px;">${idx+1}. ${u.name} ${u.surname}</b>
+                    <span style="background:gold; padding:3px 12px; border-radius:20px;">⭐ ${u.rating}</span>
+                    <span style="background:#2c3e66; color:white; padding:3px 12px; border-radius:20px; cursor:pointer;" onclick="copyToClipboard(${u.id}, 'ID')">🆔 ${u.id} 📋</span>
+                </div>
+                <p>📝 Зачем: ${entry.reason}<br>⏱️ На ${entry.minutes} мин<br>💬 ${entry.comment || '—'}</p>
+                <div class="flex-row" style="margin-top:8px;">
+                    <button class="small" onclick="showUserDetails(${entry.userId})">ПОДРОБНЕЕ</button>
+                    <button class="small success" onclick="quickWriteReview(${entry.userId})">✍️ ОТЗЫВ</button>
+                    ${entry.userId === currentUserId ? '<button class="small warning" onclick="leaveQueue()">ВЫЙТИ</button>' : `<button class="small warning" onclick="yieldPlaceTo(${entry.userId})">УСТУПИТЬ</button>`}
+                </div>
+            </div>`;
+        });
+        document.getElementById('dynamicArea').innerHTML = html;
+    }
+    
+    function writeReviewById() {
+        let targetId = parseInt(prompt("Введите ID пользователя, на которого хотите оставить отзыв:"));
+        if(isNaN(targetId)) { alert("Некорректный ID"); return; }
+        if(targetId === currentUserId) { alert("Нельзя написать отзыв на самого себя"); return; }
+        let targetUser = findUserById(targetId);
+        if(!targetUser) { alert("Пользователь не найден"); return; }
+        
+        let choice = confirm(`Написать отзыв на ${targetUser.name} ${targetUser.surname}?\n\nОК — написать текст\nОтмена — пройти тест из вопросов`);
+        
+        if(choice) {
+            let stars = parseInt(prompt("Поставьте оценку от 1 до 5 звёзд:", "5"));
+            if(isNaN(stars) || stars < 1 || stars > 5) { alert("Оценка должна быть от 1 до 5"); return; }
+            let comment = prompt("Напишите комментарий (можно оставить пустым):");
+            if(comment === null) return;
+            
+            allFeedbacks.push({
+                fromUserId: currentUserId,
+                targetUserId: targetId,
+                stars: stars,
+                comment: comment || "",
+                createdAt: Date.now()
+            });
+            updateRating(targetId);
+            if(comment) addCommentToUser(targetId, currentUserId, `[ОТЗЫВ] ${stars}⭐: ${comment}`);
+            else addCommentToUser(targetId, currentUserId, `[ОЦЕНКА] ${stars}⭐`);
+            saveData();
+            alert(`✅ Отзыв на ${targetUser.name} добавлен!`);
+            render();
+        } else {
+            showQuizReview(targetUser);
+        }
+    }
+    
+    function showQuizReview(targetUser) {
+        let modal = document.createElement('div'); modal.className = 'modal';
+        let starsHtml = '';
+        for(let i=1; i<=5; i++) starsHtml += `<span class="stars" data-value="${i}">☆</span>`;
+        
+        modal.innerHTML = `<div class="modal-card">
+            <h3>⭐ ОТЗЫВ НА ${targetUser.name} ${targetUser.surname}</h3>
+            <p>ID: ${targetUser.id} <button class="copy-id-btn" onclick="copyToClipboard(${targetUser.id}, 'ID')">📋 Копировать ID</button></p>
+            <p><strong>Оценка звёздами:</strong></p>
+            <div id="quizStars">${starsHtml}</div>
+            <p style="margin-top:15px;"><strong>Тест (если утверждение правильное — поставьте галочку):</strong></p>
+            <div class="quiz-question"><input type="checkbox" id="q1"> <label>Смывает за собой?</label></div>
+            <div class="quiz-question"><input type="checkbox" id="q2"> <label>Воняет после его визита?</label></div>
+            <div class="quiz-question"><input type="checkbox" id="q3"> <label>Чисто после его посещения?</label></div>
+            <div class="quiz-question"><input type="checkbox" id="q4"> <label>Долго сидит на троне?</label></div>
+            <div class="quiz-question"><input type="checkbox" id="q5"> <label>Оставляет мусор?</label></div>
+            <div class="quiz-question"><input type="checkbox" id="q6"> <label>Экономно расходует бумагу?</label></div>
+            <div class="quiz-question"><input type="checkbox" id="q7"> <label>Соблюдает очередь?</label></div>
+            <button id="submitQuiz" class="success">ОТПРАВИТЬ ОТЗЫВ</button>
+            <button id="cancelQuiz">ОТМЕНА</button>
+        </div>`;
+        document.body.appendChild(modal);
+        
+        let selectedStars = 0;
+        let starsElements = document.querySelectorAll('#quizStars .stars');
+        function highlightStars(val) {
+            starsElements.forEach((s, idx) => { s.innerHTML = idx < val ? '★' : '☆'; s.style.color = idx < val ? '#ffb400' : '#ddd'; });
+        }
+        starsElements.forEach(star => {
+            star.onmouseover = function() { highlightStars(parseInt(this.dataset.value)); };
+            star.onclick = function() { selectedStars = parseInt(this.dataset.value); highlightStars(selectedStars); };
+        });
+        
+        document.getElementById('submitQuiz').onclick = () => {
+            if(selectedStars === 0) { alert("Поставьте оценку звёздами!"); return; }
+            
+            let answers = [];
+            if(document.getElementById('q1').checked) answers.push("смывает за собой");
+            if(document.getElementById('q2').checked) answers.push("воняет после визита");
+            if(document.getElementById('q3').checked) answers.push("чисто после посещения");
+            if(document.getElementById('q4').checked) answers.push("долго сидит на троне");
+            if(document.getElementById('q5').checked) answers.push("оставляет мусор");
+            if(document.getElementById('q6').checked) answers.push("экономно расходует бумагу");
+            if(document.getElementById('q7').checked) answers.push("соблюдает очередь");
+            
+            let comment = "";
+            if(answers.length > 0) {
+                comment = "✓ " + answers.join(", ✓ ");
+            } else {
+                comment = "нет отмеченных пунктов";
+            }
+            
+            allFeedbacks.push({
+                fromUserId: currentUserId,
+                targetUserId: targetUser.id,
+                stars: selectedStars,
+                comment: "[ТЕСТ] " + comment,
+                createdAt: Date.now()
+            });
+            updateRating(targetUser.id);
+            addCommentToUser(targetUser.id, currentUserId, `[ОТЗЫВ (ТЕСТ)] ${selectedStars}⭐: ${comment}`);
+            saveData();
+            alert(`✅ Отзыв на ${targetUser.name} добавлен!`);
+            modal.remove();
+            render();
+        };
+        document.getElementById('cancelQuiz').onclick = () => modal.remove();
+    }
+
+    window.quickWriteReview = (targetId) => {
+        let targetUser = findUserById(targetId);
+        if(!targetUser) return;
+        let choice = confirm(`Написать отзыв на ${targetUser.name}?\nОК — текст\nОтмена — тест`);
+        if(choice) {
+            let stars = parseInt(prompt("Оценка 1-5:", "5"));
+            if(isNaN(stars) || stars<1 || stars>5) { alert("Оценка 1-5"); return; }
+            let comment = prompt("Комментарий:");
+            if(comment === null) return;
+            allFeedbacks.push({ fromUserId: currentUserId, targetUserId: targetId, stars, comment: comment||"", createdAt: Date.now() });
+            updateRating(targetId);
+            addCommentToUser(targetId, currentUserId, `[ОТЗЫВ] ${stars}⭐: ${comment||""}`);
+            saveData();
+            alert("Отзыв добавлен");
+            render();
+        } else {
+            showQuizReview(targetUser);
+        }
+    };
+
+    window.showUserDetails = (uid) => {
+        let u = findUserById(uid);
+        if(!u) return;
+        let comments = u.commentsReceived.slice(0, 5).map(c => `<li><b>${c.from}:</b> ${c.text}</li>`).join('');
+        let fbToUser = allFeedbacks.filter(f => f.targetUserId === uid);
+        let avgStars = fbToUser.length ? (fbToUser.reduce((s,f)=>s+f.stars,0)/fbToUser.length).toFixed(1) : 'нет';
+        alert(`👤 ${u.name} ${u.surname}\n🆔 ID: ${u.id}\n⭐ Рейтинг: ${u.rating} (${fbToUser.length} оценок, средняя ${avgStars})\n📝 Отзывы:\n${comments || 'нет'}`);
+    };
+
+    window.leaveQueue = () => {
+        if(confirm('Выйти из очереди?')) {
+            queue = queue.filter(q => q.userId !== currentUserId);
+            saveData();
+            addToHistory(currentUserId, 'вышел из очереди', '');
+            gameActive = false;
+            render();
+        }
+    };
+
+    window.yieldPlaceTo = (targetId) => {
+        let comment = prompt('Причина уступки места:');
+        if(!comment) return;
+        let targetUser = findUserById(targetId);
+        if(!targetUser) return;
+        addCommentToUser(targetId, currentUserId, `[УСТУПИЛ МЕСТО] ${comment}`);
+        queue = queue.filter(q => q.userId !== currentUserId);
+        saveData();
+        addCommentToUser(targetId, ADMIN_ID, `🔔 Вам уступили место! Причина: ${comment}`, true);
+        alert(`✅ Вы уступили место ${targetUser.name}`);
+        gameActive = false;
+        render();
+    };
+
+    function showJoinForm() {
+        let modal = document.createElement('div'); modal.className = 'modal';
+        modal.innerHTML = `<div class="modal-card"><h3>🚶 ВСТАТЬ В ОЧЕРЕДЬ</h3>
+        <input id="joinReason" placeholder="Зачем в туалет?" required><br>
+        <input id="joinMinutes" type="number" placeholder="На сколько минут?" required><br>
+        <textarea id="joinComment" placeholder="Комментарий (необязательно)"></textarea><br>
+        <button id="confirmJoin" class="success">ВСТАТЬ</button> <button id="cancelJoin">ОТМЕНА</button></div>`;
+        document.body.appendChild(modal);
+        document.getElementById('confirmJoin').onclick = () => {
+            let reason = document.getElementById('joinReason').value.trim();
+            let minutes = parseInt(document.getElementById('joinMinutes').value);
+            let comment = document.getElementById('joinComment').value;
+            if(!reason || isNaN(minutes) || minutes<=0) { alert('Заполните всё'); return; }
+            if(queue.some(q => q.userId === currentUserId)) { alert('Вы уже в очереди'); modal.remove(); return; }
+            if(currentSession) { alert('Сейчас кто-то в туалете'); modal.remove(); return; }
+            queue.push({ userId: currentUserId, reason, minutes, comment, timestamp: Date.now() });
+            saveData();
+            addToHistory(currentUserId, 'встал в очередь', `${reason}, ${minutes} мин`);
+            alert('✅ Вы в очереди');
+            modal.remove();
+            render();
+        };
+        document.getElementById('cancelJoin').onclick = () => modal.remove();
+    }
+
+    function startSession() {
+        if(currentSession) { alert('Кто-то уже в туалете'); return; }
+        let inQueue = queue.some(q => q.userId === currentUserId);
+        let isFirst = (queue.length > 0 && queue[0].userId === currentUserId);
+        if(queue.length === 0) { if(!confirm('Очередь пуста. Начать?')) return; }
+        else if(isFirst && inQueue) { if(!confirm('Ваша очередь! Начать посещение?')) return; }
+        else { alert('❌ Нельзя начать. Нужно встать в очередь и дождаться.'); return; }
+        
+        queue = queue.filter(q => q.userId !== currentUserId);
+        saveData();
+        
+        let lastVisitorId = null;
+        for(let u of users) {
+            for(let h of u.history) {
+                if(h.action === 'завершил посещение' && u.id !== currentUserId) { lastVisitorId = u.id; break; }
+            }
+        }
+        pendingPreviousUserId = lastVisitorId;
+        
+        currentSession = {
+            userId: currentUserId,
+            startTime: Date.now(),
+            hasWarned: false,
+            warnInterval: setInterval(() => {
+                if(!currentSession || currentSession.userId !== currentUserId) return;
+                let elapsed = Math.floor((Date.now() - currentSession.startTime) / 1000);
+                if(elapsed > 180 && !currentSession.hasWarned) {
+                    currentSession.hasWarned = true;
+                    let reason = prompt('⚠️ ВЫХОДИТЕ! Больше 3 минут. Причина задержки:');
+                    if(reason) for(let entry of queue) addCommentToUser(entry.userId, currentUserId, `🚨 ЗАДЕРЖКА: ${reason}`);
+                }
+            }, 1000)
+        };
+        addToHistory(currentUserId, 'начал посещение', '');
+        render();
+    }
+    
+    function finishSession() {
+        if(!currentSession || currentSession.userId !== currentUserId) { alert('Нет активного сеанса'); return; }
+        clearInterval(currentSession.warnInterval);
+        currentSession = null;
+        addToHistory(currentUserId, 'завершил посещение', '');
+        waitingForExitChecklist = true;
+        render();
+    }
+    
+    function renderExitChecklist() {
+        appRoot.innerHTML = `<div class="modal"><div class="modal-card"><h2>🧾 ОТМЕТЬТЕ, ЧТО СДЕЛАЛИ</h2>
+            <p style="color:#666;">*Если что-то не отметите — следующий посетитель получит уведомление</p>
+            <div class="checklist">
+                <label><input type="checkbox" id="check1"> ✅ Я УБРАЛ за собой</label>
+                <label><input type="checkbox" id="check2"> ✅ Я СМЫЛ за собой</label>
+                <label><input type="checkbox" id="check3"> ✅ После меня НЕТ беспорядка</label>
+                <label><input type="checkbox" id="check4"> ✅ Туалетная бумага ЕСТЬ</label>
+            </div>
+            <button id="confirmExitBtn" class="success">ЗАВЕРШИТЬ</button>
+            <button id="skipChecklistBtn" class="warning">ПРОПУСТИТЬ (не отмечать)</button>
+        </div></div>`;
+        
+        document.getElementById('confirmExitBtn').onclick = () => {
+            let checks = {
+                cleaned: document.getElementById('check1').checked,
+                flushed: document.getElementById('check2').checked,
+                noMess: document.getElementById('check3').checked,
+                paperLeft: document.getElementById('check4').checked
+            };
+            processExit(checks);
+        };
+        document.getElementById('skipChecklistBtn').onclick = () => {
+            processExit({ cleaned: false, flushed: false, noMess: false, paperLeft: false });
+        };
+    }
+    
+    function processExit(checks) {
+        waitingForExitChecklist = false;
+        
+        let missing = [];
+        if(!checks.cleaned) missing.push("УБРАЛ за собой");
+        if(!checks.flushed) missing.push("СМЫЛ за собой");
+        if(!checks.noMess) missing.push("После меня НЕТ беспорядка");
+        if(!checks.paperLeft) missing.push("Туалетная бумага ЕСТЬ");
+        
+        let needPaperInstruction = !checks.paperLeft;
+        
+        addToHistory(currentUserId, 'завершил посещение с галочками', missing.length ? `не отметил: ${missing.join(', ')}` : 'отметил всё');
+        
+        pendingMissingCheckboxes = missing;
+        
+        if(needPaperInstruction) {
+            waitingForPaperConfirm = true;
+            render();
+        } else {
+            if(pendingPreviousUserId && pendingPreviousUserId !== currentUserId) {
+                showRatingForPrevious(pendingPreviousUserId);
+            } else {
+                callNextInQueue();
+                render();
+            }
+        }
+    }
+    
+    function renderPaperConfirm() {
+        appRoot.innerHTML = `<div class="modal"><div class="modal-card">
+            <div class="paper-instruction">
+                <h3>🧻 ПОЛОЖИ ТУАЛЕТНУЮ БУМАГУ</h3>
+                <p>📌 Положи туалетную бумагу на пол рядом с дверью. Она находится на самой верхней полке.</p>
+                <p>📌 Потяни на верёвку с правого бока от унитаза и возьми один рулон.</p>
+                <p>📌 Затем закрой штору.</p>
+            </div>
+            <button id="paperReadyBtn" class="success">ГОТОВО</button>
+        </div></div>`;
+        document.getElementById('paperReadyBtn').onclick = () => {
+            waitingForPaperConfirm = false;
+            askNextAboutPaper();
+        };
+    }
+    
+    function askNextAboutPaper() {
+        if(queue.length === 0) {
+            render();
+            return;
+        }
+        let modal = document.createElement('div'); modal.className = 'modal';
+        modal.innerHTML = `<div class="modal-card">
+            <h3>🧻 ВОПРОС ПРО ТУАЛЕТНУЮ БУМАГУ</h3>
+            <p>Прошлый посетитель <b>положил туалетную бумагу?</b></p>
+            <button id="paperYes" class="success">ДА</button>
+            <button id="paperNo" class="danger">НЕТ</button>
+        </div>`;
+        document.body.appendChild(modal);
+        
+        document.getElementById('paperYes').onclick = () => {
+            modal.remove();
+            if(pendingPreviousUserId && pendingPreviousUserId !== currentUserId) {
+                showRatingForPrevious(pendingPreviousUserId);
+            } else {
+                callNextInQueue();
+                render();
+            }
+        };
+        document.getElementById('paperNo').onclick = () => {
+            modal.remove();
+            let prevUser = pendingPreviousUserId ? findUserById(pendingPreviousUserId) : null;
+            if(prevUser) {
+                complaints.push({
+                    id: Date.now(),
+                    fromUserId: currentUserId,
+                    targetUserId: prevUser.id,
+                    text: `[АВТОЖАЛОБА] Не положил туалетную бумагу после посещения.`,
+                    adminAnswer: null,
+                    createdAt: Date.now(),
+                    isArchived: false,
+                    appealText: null,
+                    isAuto: true,
+                    type: 'auto_complaint'
+                });
+                saveData();
+                alert(`⚠️ Жалоба на ${prevUser.name} автоматически отправлена админу`);
+            }
+            if(pendingPreviousUserId && pendingPreviousUserId !== currentUserId) {
+                showRatingForPrevious(pendingPreviousUserId);
+            } else {
+                callNextInQueue();
+                render();
+            }
+        };
+    }
+    
+    function showRatingForPrevious(prevId) {
+        let prevUser = findUserById(prevId);
+        if(!prevUser) { callNextInQueue(); render(); return; }
+        let modal = document.createElement('div'); modal.className = 'modal';
+        let starsHtml = '';
+        for(let i=1;i<=5;i++) starsHtml += `<span class="stars" data-value="${i}">☆</span>`;
+        modal.innerHTML = `<div class="modal-card"><h3>⭐ ОЦЕНИ ПРЕДЫДУЩЕГО</h3>
+            <p><b>${prevUser.name} ${prevUser.surname}</b> | ID: ${prevUser.id} <button class="copy-id-btn" onclick="copyToClipboard(${prevUser.id}, 'ID')">📋 Копировать ID</button></p>
+            ${pendingMissingCheckboxes && pendingMissingCheckboxes.length ? `<p style="color:red;">⚠️ Он не отметил: ${pendingMissingCheckboxes.join(', ')}</p>` : ''}
+            <div id="ratingStars">${starsHtml}</div>
+            <textarea id="feedbackComment" placeholder="Замечания (необязательно)"></textarea>
+            <button id="submitRating" class="success">ОТПРАВИТЬ</button>
+            <button id="skipRating">ПРОПУСТИТЬ</button></div>`;
+        document.body.appendChild(modal);
+        let selectedStars = 0;
+        let starsEl = document.querySelectorAll('#ratingStars .stars');
+        function highlight(val) { starsEl.forEach((s,i)=>{ s.innerHTML=i<val?'★':'☆'; s.style.color=i<val?'#ffb400':'#ddd'; }); }
+        starsEl.forEach(s=>{ s.onmouseover=()=>highlight(parseInt(s.dataset.value)); s.onclick=()=>{ selectedStars=parseInt(s.dataset.value); highlight(selectedStars); }; });
+        document.getElementById('submitRating').onclick = () => {
+            if(!selectedStars) { alert('Поставь оценку'); return; }
+            let comment = document.getElementById('feedbackComment').value;
+            if(pendingMissingCheckboxes && pendingMissingCheckboxes.length) {
+                comment = `[НЕ ОТМЕТИЛ: ${pendingMissingCheckboxes.join(', ')}] ` + comment;
+            }
+            allFeedbacks.push({ fromUserId: currentUserId, targetUserId: prevId, stars: selectedStars, comment, createdAt: Date.now() });
+            updateRating(prevId);
+            if(comment) addCommentToUser(prevId, currentUserId, `[ПОСЛЕ ПОСЕЩЕНИЯ] ${selectedStars}⭐: ${comment}`);
+            modal.remove();
+            pendingMissingCheckboxes = null;
+            callNextInQueue();
+            render();
+        };
+        document.getElementById('skipRating').onclick = () => { modal.remove(); pendingMissingCheckboxes = null; callNextInQueue(); render(); };
+    }
+    
+    function callNextInQueue() {
+        if(queue.length > 0) {
+            let next = queue[0];
+            let nextUser = findUserById(next.userId);
+            if(nextUser) addCommentToUser(next.userId, ADMIN_ID, `🔔 ТВОЯ ОЧЕРЕДЬ! Жми «Начать посещение».`, true);
+        }
+        pendingPreviousUserId = null;
+        pendingMissingCheckboxes = null;
+        render();
+    }
+    
+    function renderActiveSession() {
+        let elapsed = Math.floor((Date.now() - currentSession.startTime) / 1000);
+        let mins = Math.floor(elapsed/60), secs = elapsed%60;
+        return `<div class="queue-card"><h3>🚽 ВЫ В ТУАЛЕТЕ</h3>
+        <p>⏱️ ${mins}:${secs.toString().padStart(2,'0')}</p>
+        ${elapsed>180?'<div style="color:red;font-weight:bold;">⚠️ УЖЕ БОЛЬШЕ 3 МИНУТ! ВЫХОДИ.</div>':''}
+        <button id="endNowBtn" class="success">✅ ЗАКОНЧИТЬ</button>
+        <button id="gameInSessionBtn" class="warning" style="margin-top:10px;">📱 НЕИЗВЕСТНЫЙ АБОНЕНТ</button></div>`;
+    }
+    
+    document.addEventListener('click', (e) => {
+        if(e.target.id === 'endNowBtn') finishSession();
+        if(e.target.id === 'gameInSessionBtn') showGame();
+    });
+    
+    function showProfile(user) {
+        let myComplaints = complaints.filter(c => c.fromUserId === currentUserId);
+        let complaintsHtml = myComplaints.map(c => {
+            let target = findUserById(c.targetUserId);
+            let targetName = target ? `${target.name} ${target.surname}` : (c.type === 'question' ? 'Администратору (вопрос)' : (c.type === 'bug' ? 'Администратору (ошибка)' : `ID ${c.targetUserId}`));
+            let typeLabel = '';
+            if(c.type === 'question') typeLabel = '❓ ВОПРОС: ';
+            else if(c.type === 'bug') typeLabel = '🐛 ОШИБКА: ';
+            else if(c.type === 'complaint') typeLabel = '📢 ЖАЛОБА: ';
+            else typeLabel = '📄 ';
+            return `<div style="border-bottom:1px solid #ccc; margin:10px 0; padding:5px;">
+                <b>📌 ${typeLabel}${targetName}</b><br>📄 ${c.text}<br>✍️ Ответ: ${c.adminAnswer || 'нет'}<br>
+                ${c.adminAnswer ? `<button class="small" onclick="appealComplaint(${c.id})">📢 АПЕЛЛЯЦИЯ</button>` : ''}
+                <small>${new Date(c.createdAt).toLocaleString()}</small></div>`;
+        }).join('');
+        let ratingsInfo = allFeedbacks.filter(f => f.targetUserId === currentUserId);
+        let avgRating = ratingsInfo.length ? (ratingsInfo.reduce((s,f)=>s+f.stars,0)/ratingsInfo.length).toFixed(2) : 'нет';
+        let historyHtml = user.history.slice(0,15).map(h => `<li>${new Date(h.timestamp).toLocaleString()}: ${h.action} — ${h.details}</li>`).join('');
+        document.getElementById('dynamicArea').innerHTML = `
+            <div class="queue-card"><h3>👤 МОЙ ПРОФИЛЬ</h3>
+            <p><b>ФИО:</b> ${user.name} ${user.surname} ${user.patronymic}</p>
+            <p><b>🆔 ID:</b> <span style="font-size:28px; font-weight:bold; background:#2c3e66; color:white; padding:5px 20px; border-radius:60px; cursor:pointer;" onclick="copyToClipboard(${user.id}, 'ID')">${user.id} 📋</span></p>
+            <p><b>⭐ РЕЙТИНГ:</b> <span style="font-size:22px; font-weight:bold;">${user.rating}</span> (${ratingsInfo.length} оценок, средняя ${avgRating})</p>
+            <button id="changeDataBtn">✏️ ИЗМЕНИТЬ ДАННЫЕ</button>
+            <hr><h4>📜 ИСТОРИЯ (15 последних)</h4><ul>${historyHtml || 'Нет истории'}</ul>
+            <hr><h4>📨 МОИ ОБРАЩЕНИЯ</h4>${complaintsHtml || 'Нет обращений'}</div>`;
+        document.getElementById('changeDataBtn')?.addEventListener('click', () => {
+            let newName = prompt('Новое имя', user.name); if(newName) user.name = newName;
+            let newSurname = prompt('Новая фамилия', user.surname); if(newSurname) user.surname = newSurname;
+            let newPatr = prompt('Новое отчество', user.patronymic); if(newPatr) user.patronymic = newPatr;
+            let newPassword = prompt('Новый пароль (оставьте пустым, чтобы не менять)', user.password || '');
+            if(newPassword) user.password = newPassword;
+            saveData(); render();
+        });
+    }
+    
+    window.appealComplaint = (cid) => {
+        let c = complaints.find(c => c.id === cid);
+        if(!c) return;
+        let appeal = prompt('Напишите причину апелляции:');
+        if(appeal) { c.appealText = appeal; saveData(); alert('Апелляция отправлена'); render(); }
+    };
+    
+    function showAdminPanel() {
+        const isMain = isMainAdmin(currentUserId);
+        const canManageAccounts = hasAdminPermission(currentUserId, 'manageAccounts');
+        const canManageComplaints = hasAdminPermission(currentUserId, 'manageComplaints');
+        const canViewAllUsers = hasAdminPermission(currentUserId, 'viewAllUsers');
+        
+        let html = `<div class="admin-panel"><h3>⚙️ АДМИН ПАНЕЛЬ</h3>`;
+        
+        if(isMain) {
+            html += `<h4>👑 УПРАВЛЕНИЕ ВРЕМЕННЫМИ АДМИНИСТРАТОРАМИ</h4>`;
+            html += `<div style="background:#e8f0fe; padding:15px; border-radius:20px; margin-bottom:20px;">`;
+            html += `<label>Выберите пользователя:</label><br>`;
+            html += `<select id="tempAdminUserSelect" style="margin-bottom:10px;">`;
+            for(let u of users) {
+                if(!isMainAdmin(u.id)) {
+                    let isTemp = u.tempAdmin && u.tempAdmin.expiresAt > Date.now();
+                    html += `<option value="${u.id}">${u.name} ${u.surname} ${u.patronymic} (ID: ${u.id}) ${isTemp ? '🔑 уже временный админ' : ''}</option>`;
+                }
+            }
+            html += `</select><br>`;
+            html += `<label>Срок действия:</label><br>`;
+            html += `<select id="tempAdminDuration">`;
+            html += `<option value="1">1 час</option><option value="3">3 часа</option><option value="6">6 часов</option><option value="12">12 часов</option>`;
+            html += `<option value="24">1 день</option><option value="72">3 дня</option><option value="168">7 дней</option><option value="0">Навсегда (до отзыва)</option>`;
+            html += `</select><br>`;
+            html += `<label>Разрешения:</label><br>`;
+            html += `<label><input type="checkbox" id="permManageQueue" checked> Управление очередью</label><br>`;
+            html += `<label><input type="checkbox" id="permManageComplaints" checked> Управление жалобами</label><br>`;
+            html += `<label><input type="checkbox" id="permManageAccounts" checked> Управление аккаунтами (бан/разбан)</label><br>`;
+            html += `<label><input type="checkbox" id="permViewAllUsers" checked> Просмотр всех аккаунтов</label><br>`;
+            html += `<button id="grantTempAdminBtn" class="success">🔑 ВЫДАТЬ РОЛЬ АДМИНА</button>`;
+            html += `<button id="revokeTempAdminBtn" class="danger">❌ ЗАБРАТЬ РОЛЬ АДМИНА</button>`;
+            html += `</div>`;
+        }
+        
+        if(isMain || canViewAllUsers) {
+            html += `<h4>📋 СПИСОК ВСЕХ АККАУНТОВ</h4>`;
+            html += `<table class="accounts-table">`;
+            html += `<tr><th>ID</th><th>ФИО</th><th>Рейтинг</th><th>Статус</th><th>Роль</th>`;
+            if(isMain) html += `<th>🔑 ПАРОЛЬ</th>`;
+            html += `<th>Действие</th></tr>`;
+            for(let u of users) {
+                let isBanned = u.bannedUntil && u.bannedUntil > Date.now();
+                let status = isBanned ? '🔴 ЗАБАНЕН' : '🟢 АКТИВЕН';
+                let role = '';
+                if(isMainAdmin(u.id)) role = '👑 ГЛАВНЫЙ АДМИН';
+                else if(u.tempAdmin && u.tempAdmin.expiresAt > Date.now()) {
+                    let remaining = Math.ceil((u.tempAdmin.expiresAt - Date.now()) / 1000 / 60 / 60);
+                    role = `🔑 ВРЕМ. АДМИН (ещё ${remaining} ч)`;
+                } else role = '👤 ПОЛЬЗОВАТЕЛЬ';
+                html += `<tr>
+                    <td><b>${u.id}</b></td>
+                    <td>${u.name} ${u.surname} ${u.patronymic}</td>
+                    <td>⭐ ${u.rating}</td>
+                    <td>${status}</td>
+                    <td>${role}</td>`;
+                if(isMain) {
+                    html += `<td class="password-cell"><b>${u.password || '—'}</b> <button class="small" onclick="copyToClipboard('${u.password || ''}', 'Пароль')">📋</button></td>`;
+                }
+                html += `<td><button class="small" onclick="copyToClipboard(${u.id}, 'ID')">📋 Копировать ID</button></td>
+                </table>`;
+            }
+            html += `</table><hr>`;
+        }
+        
+        if(isMain || canManageComplaints) {
+            let active = complaints.filter(c => !c.isArchived);
+            html += `<h4>📢 ОБРАЩЕНИЯ К АДМИНИСТРАТОРУ (${active.length})</h4>`;
+            if(active.length === 0) {
+                html += `<p>Нет активных обращений</p>`;
+            } else {
+                for(let c of active) {
+                    let from = findUserById(c.fromUserId);
+                    let typeIcon = '';
+                    let typeLabel = '';
+                    if(c.type === 'question') { typeIcon = '❓'; typeLabel = 'ВОПРОС'; }
+                    else if(c.type === 'bug') { typeIcon = '🐛'; typeLabel = 'ОШИБКА'; }
+                    else if(c.type === 'complaint') { typeIcon = '📢'; typeLabel = 'ЖАЛОБА'; }
+                    else if(c.type === 'auto_complaint') { typeIcon = '🤖'; typeLabel = 'АВТОЖАЛОБА'; }
+                    else if(c.isBanAppeal) { typeIcon = '📢'; typeLabel = 'АПЕЛЛЯЦИЯ'; }
+                    else { typeIcon = '📄'; typeLabel = 'ОБРАЩЕНИЕ'; }
+                    
+                    let targetInfo = '';
+                    if(c.targetUserId) {
+                        let target = findUserById(c.targetUserId);
+                        targetInfo = target ? ` на ${target.name} ${target.surname} (ID ${c.targetUserId})` : ` на ID ${c.targetUserId}`;
+                    }
+                    
+                    html += `<div style="border:1px solid #aaa; margin:10px; padding:10px; border-radius:16px;">
+                        <b>${typeIcon} ${typeLabel}${targetInfo} #${c.id}</b><br>
+                        📤 От: ${from?.name} ${from?.surname} (ID ${c.fromUserId})<br>
+                        📝 Текст: "${c.text}"<br>
+                        ${c.appealText ? `<b>📢 АПЕЛЛЯЦИЯ:</b> "${c.appealText}"<br>` : ''}
+                        <b>✍️ Ответ админа:</b> ${c.adminAnswer || '—'}<br>
+                        <input id="ans_${c.id}" placeholder="Ответ" style="width:60%;"><button onclick="answerComplaint(${c.id})">Ответить</button>
+                        ${(isMain || canManageAccounts) && c.type === 'complaint' ? `<button onclick="banUser(${c.targetUserId})" class="danger">🔨 БАН</button>` : ''}
+                        ${(isMain || canManageAccounts) && c.fromUserId ? `<button onclick="restrictComplaints(${c.fromUserId})" class="warning">🚫 ЗАПРЕТ ЖАЛОБ</button>` : ''}
+                        <button onclick="deleteComplaint(${c.id})">🗑️ УДАЛИТЬ</button>
+                    </div>`;
+                }
+            }
+            html += `<hr>`;
+        }
+        
+        if(isMain || canManageAccounts) {
+            html += `<h4>🔨 УПРАВЛЕНИЕ АККАУНТАМИ</h4>`;
+            html += `<button id="unbanUserBtn" class="success">🔓 РАЗБАНИТЬ ПОЛЬЗОВАТЕЛЯ</button>`;
+            html += `<button id="banUserByIdBtn" class="danger">🔨 ЗАБАНИТЬ ПО ID</button><br>`;
+            html += `<hr>`;
+        }
+        
+        html += `<button id="closeAdmin">ЗАКРЫТЬ</button></div>`;
+        document.getElementById('dynamicArea').innerHTML = html;
+        
+        document.getElementById('closeAdmin')?.addEventListener('click', () => render());
+        
+        if(isMain) {
+            document.getElementById('grantTempAdminBtn')?.addEventListener('click', () => {
+                let userId = parseInt(document.getElementById('tempAdminUserSelect').value);
+                let durationHours = parseInt(document.getElementById('tempAdminDuration').value);
+                let permissions = {
+                    manageQueue: document.getElementById('permManageQueue').checked,
+                    manageComplaints: document.getElementById('permManageComplaints').checked,
+                    manageAccounts: document.getElementById('permManageAccounts').checked,
+                    viewAllUsers: document.getElementById('permViewAllUsers').checked
+                };
+                let user = findUserById(userId);
+                if(user) {
+                    let expiresAt = durationHours === 0 ? null : Date.now() + durationHours * 3600000;
+                    user.tempAdmin = { expiresAt, permissions };
+                    saveData();
+                    alert(`✅ Пользователю ${user.name} ${user.surname} выдана роль временного администратора${durationHours === 0 ? ' навсегда' : ` на ${durationHours} часов`}`);
+                    showAdminPanel();
+                }
+            });
+            document.getElementById('revokeTempAdminBtn')?.addEventListener('click', () => {
+                let userId = parseInt(document.getElementById('tempAdminUserSelect').value);
+                let user = findUserById(userId);
+                if(user) { user.tempAdmin = null; saveData(); alert(`✅ У пользователя ${user.name} ${user.surname} забрана роль администратора`); showAdminPanel(); }
+            });
+        }
+        
+        document.getElementById('unbanUserBtn')?.addEventListener('click', () => {
+            let uid = parseInt(prompt('Введите ID пользователя для разбана:'));
+            let user = findUserById(uid);
+            if(user) { user.bannedUntil = null; user.banInfo = null; saveData(); alert('Пользователь разбанен'); showAdminPanel(); }
+            else alert('Не найден');
+        });
+        
+        document.getElementById('banUserByIdBtn')?.addEventListener('click', () => {
+            let uid = parseInt(prompt('Введите ID пользователя для бана:'));
+            let user = findUserById(uid);
+            if(user) {
+                let reason = prompt('Причина бана:'); if(!reason) return;
+                let duration = prompt('На сколько? (10 минут, 2 часа, 3 дня, навсегда)'); if(!duration) return;
+                let ms = duration.includes('навсегда') ? 315360000000 : (()=>{ let n=parseInt(duration); if(duration.includes('минут')) return n*60000; if(duration.includes('час')) return n*3600000; if(duration.includes('день')) return n*86400000; if(duration.includes('месяц')) return n*2592000000; return 86400000; })();
+                user.bannedUntil = Date.now()+ms;
+                user.banInfo = { bannedBy: findUserById(currentUserId)?.name || 'Админ', bannedAt: Date.now(), reason: reason };
+                saveData();
+                alert(`${user.name} забанен`);
+                if(currentSession?.userId === uid){ clearInterval(currentSession.warnInterval); currentSession=null; }
+                showAdminPanel();
+            } else alert('Не найден');
+        });
+    }
+    
+    window.answerComplaint = (cid) => {
+        let ans = document.getElementById(`ans_${cid}`)?.value;
+        if(!ans) return;
+        let c = complaints.find(c => c.id === cid);
+        if(c) { c.adminAnswer = ans; saveData(); showAdminPanel(); }
+    };
+    
+    window.banUser = (uid) => {
+        let reason = prompt('Причина бана:'); if(!reason) return;
+        let duration = prompt('На сколько? (10 минут, 2 часа, 3 дня, навсегда)'); if(!duration) return;
+        let ms = duration.includes('навсегда') ? 315360000000 : (()=>{ let n=parseInt(duration); if(duration.includes('минут')) return n*60000; if(duration.includes('час')) return n*3600000; if(duration.includes('день')) return n*86400000; if(duration.includes('месяц')) return n*2592000000; return 86400000; })();
+        let u = findUserById(uid);
+        if(u) { 
+            u.bannedUntil = Date.now()+ms; 
+            u.banInfo = { bannedBy: findUserById(currentUserId)?.name || 'Админ', bannedAt: Date.now(), reason: reason };
+            saveData(); 
+            alert(`${u.name} забанен`); 
+            if(currentSession?.userId === uid){ clearInterval(currentSession.warnInterval); currentSession=null; }
+            if(currentUserId === uid) { currentUserId = null; render(); }
+            else showAdminPanel();
+        }
+    };
+    
+    window.restrictComplaints = (uid) => {
+        let days = parseInt(prompt('На сколько дней запретить жалобы?')) || 1;
+        let u = findUserById(uid);
+        if(u) { u.canComplainUntil = Date.now()+days*86400000; saveData(); alert('Жалобы запрещены'); showAdminPanel(); }
+    };
+    
+    window.deleteComplaint = (cid) => { if(confirm('Удалить обращение?')) { complaints=complaints.filter(c=>c.id!==cid); saveData(); showAdminPanel(); } };
+    
+    window.copyToClipboard = copyToClipboard;
+    
+    loadData();
+    render();
+</script>
+</body>
+</html>
